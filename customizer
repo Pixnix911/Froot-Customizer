@@ -1,0 +1,591 @@
+// ==UserScript==
+// @name         Froot Customizer
+// @namespace    http://tampermonkey.net/
+// @version      2.2
+// @description  Customization for froot.club: glass style, background images (upload from PC or URL). Sidebar button "Customization".
+// @author       fluouliss
+// @match        https://froot.club/*
+// @grant        GM_xmlhttpRequest
+// @grant        GM_setValue
+// @grant        GM_getValue
+// @grant        GM_addStyle
+// @grant        GM_deleteValue
+// @connect      froot.club
+// @connect      *
+// @run-at       document-idle
+// ==/UserScript==
+
+(function() {
+    'use strict';
+
+    // ---------- Default settings ----------
+    const defaultSettings = {
+        enabled: true,
+        background: {
+            type: 'color',
+            color: 'rgba(240, 240, 245, 0.9)',
+            imageUrl: '',
+            imagePosition: 'center',
+            imageSize: 'cover',
+            imageRepeat: 'no-repeat'
+        },
+        glass: {
+            blur: 4,
+            brightness: 1,
+            contrast: 1,
+            saturate: 1,
+            opacity: 0.9,
+            borderRadius: 12,
+            border: '1px solid rgba(0,0,0,0.1)',
+            shadow: '0 4px 6px rgba(0,0,0,0.1)'
+        },
+        colors: {
+            primary: '#4f8ef7',
+            secondary: '#a78bfa',
+            text: '#111111',
+            textSecondary: '#555555',
+            accent: '#52c97a'
+        }
+    };
+
+    let settings = JSON.parse(GM_getValue('froot_customizer_settings', JSON.stringify(defaultSettings)));
+
+    function saveSettings() {
+        GM_setValue('froot_customizer_settings', JSON.stringify(settings));
+    }
+
+    function applyStyles() {
+        if (!settings.enabled) {
+            document.body.style.cssText = '';
+            const styleEl = document.getElementById('froot-customizer-styles');
+            if (styleEl) styleEl.remove();
+            return;
+        }
+
+        let styleText = `
+            body {
+                background: ${settings.background.type === 'color' ? settings.background.color : 'transparent'} !important;
+                transition: all 0.3s ease;
+                color: ${settings.colors.text} !important;
+            }
+            ${settings.background.type === 'image' && settings.background.imageUrl ? `
+            body::before {
+                content: '';
+                position: fixed;
+                top: 0;
+                left: 0;
+                width: 100%;
+                height: 100%;
+                background-image: url('${settings.background.imageUrl}');
+                background-position: ${settings.background.imagePosition};
+                background-size: ${settings.background.imageSize};
+                background-repeat: ${settings.background.imageRepeat};
+                filter: blur(${settings.glass.blur}px) brightness(${settings.glass.brightness}) contrast(${settings.glass.contrast}) saturate(${settings.glass.saturate});
+                opacity: ${settings.glass.opacity};
+                z-index: -2;
+                pointer-events: none;
+            }
+            ` : ''}
+            .card, .container, .modal-content, .dropdown-menu, .list-group-item, .nav-link, .btn, .form-control {
+                background: rgba(255, 255, 255, 0.7) !important;
+                backdrop-filter: blur(${settings.glass.blur}px) !important;
+                border-radius: ${settings.glass.borderRadius}px !important;
+                border: ${settings.glass.border} !important;
+                box-shadow: ${settings.glass.shadow} !important;
+                color: ${settings.colors.text} !important;
+            }
+            body, p, h1, h2, h3, h4, h5, h6, span, a, li {
+                color: ${settings.colors.text} !important;
+            }
+            .text-muted, .text-secondary {
+                color: ${settings.colors.textSecondary} !important;
+            }
+            .btn-primary, .btn-success, .btn-danger, .btn-warning, .btn-info {
+                background-color: ${settings.colors.primary} !important;
+                border-color: ${settings.colors.primary} !important;
+                color: #fff !important;
+            }
+            .btn-secondary {
+                background-color: ${settings.colors.secondary} !important;
+                border-color: ${settings.colors.secondary} !important;
+                color: #fff !important;
+            }
+            a {
+                color: ${settings.colors.primary} !important;
+            }
+            a:hover {
+                color: ${settings.colors.accent} !important;
+            }
+            ::-webkit-scrollbar {
+                width: 8px;
+                height: 8px;
+            }
+            ::-webkit-scrollbar-track {
+                background: rgba(0,0,0,0.1);
+                border-radius: 10px;
+            }
+            ::-webkit-scrollbar-thumb {
+                background: rgba(0,0,0,0.3);
+                border-radius: 10px;
+            }
+            ::-webkit-scrollbar-thumb:hover {
+                background: rgba(0,0,0,0.5);
+            }
+        `;
+
+        let styleEl = document.getElementById('froot-customizer-styles');
+        if (!styleEl) {
+            styleEl = document.createElement('style');
+            styleEl.id = 'froot-customizer-styles';
+            document.head.appendChild(styleEl);
+        }
+        styleEl.textContent = styleText;
+    }
+
+    // ---------- Customization Panel (glass, dark text) ----------
+    function createCustomizerPanel() {
+        const oldPanel = document.getElementById('froot-customizer-panel');
+        if (oldPanel) oldPanel.remove();
+
+        const panel = document.createElement('div');
+        panel.id = 'froot-customizer-panel';
+        panel.innerHTML = `
+            <div class="panel-header">
+                <h3>🎨 Froot Customizer</h3>
+                <button id="close-panel">✕</button>
+            </div>
+            <div class="panel-body">
+                <div class="section">
+                    <label><input type="checkbox" id="enable-customizer" ${settings.enabled ? 'checked' : ''}> Enable Customization</label>
+                </div>
+                <div class="section">
+                    <h4>Background</h4>
+                    <select id="bg-type">
+                        <option value="color" ${settings.background.type === 'color' ? 'selected' : ''}>Color</option>
+                        <option value="image" ${settings.background.type === 'image' ? 'selected' : ''}>Image</option>
+                    </select>
+                    <div id="bg-color-container">
+                        <input type="color" id="bg-color" value="${settings.background.color}">
+                    </div>
+                    <div id="bg-image-container" style="display: ${settings.background.type === 'image' ? 'block' : 'none'}">
+                        <input type="text" id="bg-image-url" placeholder="Image URL (PNG, JPG, GIF)" value="${settings.background.imageUrl}">
+                        <button id="upload-url">Apply URL</button>
+                        <button id="upload-file">📁 Upload from PC</button>
+                        <input type="file" id="file-input" accept="image/*" style="display:none">
+                        <div id="image-preview"></div>
+                        <select id="bg-position">
+                            <option value="center" ${settings.background.imagePosition === 'center' ? 'selected' : ''}>Center</option>
+                            <option value="top" ${settings.background.imagePosition === 'top' ? 'selected' : ''}>Top</option>
+                            <option value="bottom" ${settings.background.imagePosition === 'bottom' ? 'selected' : ''}>Bottom</option>
+                            <option value="left" ${settings.background.imagePosition === 'left' ? 'selected' : ''}>Left</option>
+                            <option value="right" ${settings.background.imagePosition === 'right' ? 'selected' : ''}>Right</option>
+                        </select>
+                        <select id="bg-size">
+                            <option value="cover" ${settings.background.imageSize === 'cover' ? 'selected' : ''}>Cover</option>
+                            <option value="contain" ${settings.background.imageSize === 'contain' ? 'selected' : ''}>Contain</option>
+                            <option value="auto" ${settings.background.imageSize === 'auto' ? 'selected' : ''}>Auto</option>
+                        </select>
+                        <select id="bg-repeat">
+                            <option value="no-repeat" ${settings.background.imageRepeat === 'no-repeat' ? 'selected' : ''}>No repeat</option>
+                            <option value="repeat" ${settings.background.imageRepeat === 'repeat' ? 'selected' : ''}>Repeat</option>
+                            <option value="repeat-x" ${settings.background.imageRepeat === 'repeat-x' ? 'selected' : ''}>Repeat X</option>
+                            <option value="repeat-y" ${settings.background.imageRepeat === 'repeat-y' ? 'selected' : ''}>Repeat Y</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="section">
+                    <h4>Glass Effect</h4>
+                    <label>Blur: <input type="range" id="glass-blur" min="0" max="20" step="1" value="${settings.glass.blur}"> <span id="blur-value">${settings.glass.blur}</span>px</label>
+                    <label>Brightness: <input type="range" id="glass-brightness" min="0" max="2" step="0.1" value="${settings.glass.brightness}"> <span id="brightness-value">${settings.glass.brightness}</span></label>
+                    <label>Contrast: <input type="range" id="glass-contrast" min="0" max="2" step="0.1" value="${settings.glass.contrast}"> <span id="contrast-value">${settings.glass.contrast}</span></label>
+                    <label>Saturate: <input type="range" id="glass-saturate" min="0" max="2" step="0.1" value="${settings.glass.saturate}"> <span id="saturate-value">${settings.glass.saturate}</span></label>
+                    <label>Opacity: <input type="range" id="glass-opacity" min="0" max="1" step="0.05" value="${settings.glass.opacity}"> <span id="opacity-value">${settings.glass.opacity}</span></label>
+                    <label>Border Radius: <input type="range" id="glass-radius" min="0" max="30" step="1" value="${settings.glass.borderRadius}"> <span id="radius-value">${settings.glass.borderRadius}</span>px</label>
+                </div>
+                <div class="section">
+                    <h4>Colors</h4>
+                    <label>Primary: <input type="color" id="color-primary" value="${settings.colors.primary}"></label>
+                    <label>Secondary: <input type="color" id="color-secondary" value="${settings.colors.secondary}"></label>
+                    <label>Text: <input type="color" id="color-text" value="${settings.colors.text}"></label>
+                    <label>Text Secondary: <input type="color" id="color-text-secondary" value="${settings.colors.textSecondary}"></label>
+                    <label>Accent: <input type="color" id="color-accent" value="${settings.colors.accent}"></label>
+                </div>
+                <div class="section">
+                    <button id="reset-settings">Reset to Defaults</button>
+                </div>
+            </div>
+        `;
+
+        GM_addStyle(`
+            #froot-customizer-panel {
+                position: fixed;
+                top: 50%;
+                left: 50%;
+                transform: translate(-50%, -50%);
+                width: 500px;
+                max-width: 90vw;
+                max-height: 80vh;
+                background: rgba(255, 255, 255, 0.95);
+                backdrop-filter: blur(10px);
+                border-radius: 16px;
+                border: 1px solid rgba(0,0,0,0.2);
+                box-shadow: 0 8px 32px rgba(0,0,0,0.3);
+                z-index: 10000;
+                color: #111;
+                font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+                overflow: hidden;
+                display: flex;
+                flex-direction: column;
+            }
+            #froot-customizer-panel .panel-header {
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                padding: 12px 16px;
+                background: rgba(0,0,0,0.05);
+                border-bottom: 1px solid rgba(0,0,0,0.1);
+                cursor: move;
+            }
+            #froot-customizer-panel .panel-header h3 {
+                margin: 0;
+                font-size: 18px;
+                color: #111;
+            }
+            #froot-customizer-panel .panel-header button {
+                background: none;
+                border: none;
+                color: #111;
+                font-size: 20px;
+                cursor: pointer;
+                opacity: 0.7;
+            }
+            #froot-customizer-panel .panel-header button:hover {
+                opacity: 1;
+            }
+            #froot-customizer-panel .panel-body {
+                padding: 16px;
+                overflow-y: auto;
+                flex: 1;
+                color: #111;
+            }
+            #froot-customizer-panel .section {
+                margin-bottom: 20px;
+                padding-bottom: 12px;
+                border-bottom: 1px solid rgba(0,0,0,0.1);
+            }
+            #froot-customizer-panel .section h4 {
+                margin: 0 0 10px 0;
+                font-size: 16px;
+                color: #111;
+            }
+            #froot-customizer-panel label {
+                display: block;
+                margin-bottom: 8px;
+                font-size: 13px;
+                color: #111;
+            }
+            #froot-customizer-panel input, #froot-customizer-panel select {
+                margin-left: 8px;
+                vertical-align: middle;
+                background: rgba(255,255,255,0.8);
+                border: 1px solid rgba(0,0,0,0.2);
+                color: #111;
+            }
+            #froot-customizer-panel input[type="color"] {
+                width: 40px;
+                height: 30px;
+            }
+            #froot-customizer-panel button {
+                background: rgba(0,0,0,0.1);
+                border: 1px solid rgba(0,0,0,0.2);
+                color: #111;
+                padding: 6px 12px;
+                border-radius: 6px;
+                cursor: pointer;
+            }
+            #froot-customizer-panel button:hover {
+                background: rgba(0,0,0,0.2);
+            }
+            #froot-customizer-panel #image-preview {
+                margin-top: 8px;
+                max-width: 100%;
+                max-height: 100px;
+                overflow: hidden;
+                border-radius: 8px;
+            }
+            #froot-customizer-panel #image-preview img {
+                max-width: 100%;
+                max-height: 100px;
+                object-fit: contain;
+            }
+        `);
+
+        document.body.appendChild(panel);
+
+        // ---- DOM elements ----
+        const enableCheckbox = panel.querySelector('#enable-customizer');
+        const bgTypeSelect = panel.querySelector('#bg-type');
+        const bgColorContainer = panel.querySelector('#bg-color-container');
+        const bgImageContainer = panel.querySelector('#bg-image-container');
+        const bgColorInput = panel.querySelector('#bg-color');
+        const bgImageUrlInput = panel.querySelector('#bg-image-url');
+        const uploadUrlBtn = panel.querySelector('#upload-url');
+        const uploadFileBtn = panel.querySelector('#upload-file');
+        const fileInput = panel.querySelector('#file-input');
+        const imagePreview = panel.querySelector('#image-preview');
+        const bgPositionSelect = panel.querySelector('#bg-position');
+        const bgSizeSelect = panel.querySelector('#bg-size');
+        const bgRepeatSelect = panel.querySelector('#bg-repeat');
+        const glassBlur = panel.querySelector('#glass-blur');
+        const glassBrightness = panel.querySelector('#glass-brightness');
+        const glassContrast = panel.querySelector('#glass-contrast');
+        const glassSaturate = panel.querySelector('#glass-saturate');
+        const glassOpacity = panel.querySelector('#glass-opacity');
+        const glassRadius = panel.querySelector('#glass-radius');
+        const colorPrimary = panel.querySelector('#color-primary');
+        const colorSecondary = panel.querySelector('#color-secondary');
+        const colorText = panel.querySelector('#color-text');
+        const colorTextSecondary = panel.querySelector('#color-text-secondary');
+        const colorAccent = panel.querySelector('#color-accent');
+        const resetBtn = panel.querySelector('#reset-settings');
+        const closeBtn = panel.querySelector('#close-panel');
+
+        // Helper: update preview and apply background
+        function setBackgroundImage(url) {
+            settings.background.imageUrl = url;
+            settings.background.type = 'image';
+            bgTypeSelect.value = 'image';
+            bgColorContainer.style.display = 'none';
+            bgImageContainer.style.display = 'block';
+            bgImageUrlInput.value = url;
+            // Show preview
+            const img = document.createElement('img');
+            img.onload = () => {
+                imagePreview.innerHTML = '';
+                imagePreview.appendChild(img);
+                updateAndApply();
+            };
+            img.onerror = () => {
+                imagePreview.innerHTML = '<span style="color: red;">Failed to load image</span>';
+                updateAndApply();
+            };
+            img.src = url;
+        }
+
+        function updateSliderValues() {
+            panel.querySelector('#blur-value').textContent = glassBlur.value;
+            panel.querySelector('#brightness-value').textContent = glassBrightness.value;
+            panel.querySelector('#contrast-value').textContent = glassContrast.value;
+            panel.querySelector('#saturate-value').textContent = glassSaturate.value;
+            panel.querySelector('#opacity-value').textContent = glassOpacity.value;
+            panel.querySelector('#radius-value').textContent = glassRadius.value;
+        }
+        updateSliderValues();
+
+        function updateAndApply() {
+            settings.enabled = enableCheckbox.checked;
+            settings.background.type = bgTypeSelect.value;
+            if (settings.background.type === 'color') {
+                settings.background.color = bgColorInput.value;
+            } else {
+                settings.background.imageUrl = bgImageUrlInput.value;
+                settings.background.imagePosition = bgPositionSelect.value;
+                settings.background.imageSize = bgSizeSelect.value;
+                settings.background.imageRepeat = bgRepeatSelect.value;
+            }
+            settings.glass.blur = parseInt(glassBlur.value);
+            settings.glass.brightness = parseFloat(glassBrightness.value);
+            settings.glass.contrast = parseFloat(glassContrast.value);
+            settings.glass.saturate = parseFloat(glassSaturate.value);
+            settings.glass.opacity = parseFloat(glassOpacity.value);
+            settings.glass.borderRadius = parseInt(glassRadius.value);
+            settings.colors.primary = colorPrimary.value;
+            settings.colors.secondary = colorSecondary.value;
+            settings.colors.text = colorText.value;
+            settings.colors.textSecondary = colorTextSecondary.value;
+            settings.colors.accent = colorAccent.value;
+
+            saveSettings();
+            applyStyles();
+        }
+
+        // Event listeners
+        enableCheckbox.addEventListener('change', updateAndApply);
+        bgTypeSelect.addEventListener('change', () => {
+            const isImage = bgTypeSelect.value === 'image';
+            bgColorContainer.style.display = isImage ? 'none' : 'block';
+            bgImageContainer.style.display = isImage ? 'block' : 'none';
+            updateAndApply();
+        });
+        bgColorInput.addEventListener('input', updateAndApply);
+        bgPositionSelect.addEventListener('change', updateAndApply);
+        bgSizeSelect.addEventListener('change', updateAndApply);
+        bgRepeatSelect.addEventListener('change', updateAndApply);
+        glassBlur.addEventListener('input', () => { updateSliderValues(); updateAndApply(); });
+        glassBrightness.addEventListener('input', () => { updateSliderValues(); updateAndApply(); });
+        glassContrast.addEventListener('input', () => { updateSliderValues(); updateAndApply(); });
+        glassSaturate.addEventListener('input', () => { updateSliderValues(); updateAndApply(); });
+        glassOpacity.addEventListener('input', () => { updateSliderValues(); updateAndApply(); });
+        glassRadius.addEventListener('input', () => { updateSliderValues(); updateAndApply(); });
+        colorPrimary.addEventListener('input', updateAndApply);
+        colorSecondary.addEventListener('input', updateAndApply);
+        colorText.addEventListener('input', updateAndApply);
+        colorTextSecondary.addEventListener('input', updateAndApply);
+        colorAccent.addEventListener('input', updateAndApply);
+
+        // Apply URL button
+        uploadUrlBtn.addEventListener('click', () => {
+            const url = bgImageUrlInput.value.trim();
+            if (url) {
+                setBackgroundImage(url);
+            } else {
+                imagePreview.innerHTML = '<span style="color: red;">Enter a valid URL</span>';
+            }
+        });
+
+        // Upload from PC
+        uploadFileBtn.addEventListener('click', () => {
+            fileInput.click();
+        });
+        fileInput.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+            if (!file.type.startsWith('image/')) {
+                imagePreview.innerHTML = '<span style="color: red;">Please select an image file (PNG, JPG, GIF)</span>';
+                return;
+            }
+            const reader = new FileReader();
+            reader.onload = (ev) => {
+                const dataUrl = ev.target.result;
+                setBackgroundImage(dataUrl);
+            };
+            reader.readAsDataURL(file);
+        });
+
+        resetBtn.addEventListener('click', () => {
+            settings = JSON.parse(JSON.stringify(defaultSettings));
+            saveSettings();
+            enableCheckbox.checked = settings.enabled;
+            bgTypeSelect.value = settings.background.type;
+            bgColorInput.value = settings.background.color;
+            bgImageUrlInput.value = settings.background.imageUrl;
+            bgPositionSelect.value = settings.background.imagePosition;
+            bgSizeSelect.value = settings.background.imageSize;
+            bgRepeatSelect.value = settings.background.imageRepeat;
+            glassBlur.value = settings.glass.blur;
+            glassBrightness.value = settings.glass.brightness;
+            glassContrast.value = settings.glass.contrast;
+            glassSaturate.value = settings.glass.saturate;
+            glassOpacity.value = settings.glass.opacity;
+            glassRadius.value = settings.glass.borderRadius;
+            colorPrimary.value = settings.colors.primary;
+            colorSecondary.value = settings.colors.secondary;
+            colorText.value = settings.colors.text;
+            colorTextSecondary.value = settings.colors.textSecondary;
+            colorAccent.value = settings.colors.accent;
+            updateSliderValues();
+            const isImage = settings.background.type === 'image';
+            bgColorContainer.style.display = isImage ? 'none' : 'block';
+            bgImageContainer.style.display = isImage ? 'block' : 'none';
+            imagePreview.innerHTML = '';
+            if (settings.background.imageUrl) {
+                const img = document.createElement('img');
+                img.src = settings.background.imageUrl;
+                imagePreview.appendChild(img);
+            }
+            applyStyles();
+        });
+
+        closeBtn.addEventListener('click', () => panel.remove());
+
+        // Dragging
+        let isDragging = false, offsetX, offsetY;
+        const header = panel.querySelector('.panel-header');
+        header.addEventListener('mousedown', (e) => {
+            if (e.target === closeBtn || e.target.closest('#close-panel')) return;
+            isDragging = true;
+            offsetX = e.clientX - panel.offsetLeft;
+            offsetY = e.clientY - panel.offsetTop;
+            panel.style.cursor = 'grabbing';
+        });
+        document.addEventListener('mousemove', (e) => {
+            if (!isDragging) return;
+            let left = e.clientX - offsetX;
+            let top = e.clientY - offsetY;
+            left = Math.min(Math.max(left, 0), window.innerWidth - panel.offsetWidth);
+            top = Math.min(Math.max(top, 0), window.innerHeight - panel.offsetHeight);
+            panel.style.left = left + 'px';
+            panel.style.top = top + 'px';
+            panel.style.transform = 'none';
+        });
+        document.addEventListener('mouseup', () => {
+            isDragging = false;
+            panel.style.cursor = '';
+        });
+    }
+
+    // ---------- Sidebar button injection ----------
+    function addCustomizeButtonToSidebar() {
+        const sidebar = document.querySelector('div[class*="card-"]');
+        if (!sidebar) return;
+        const homeBtn = [...sidebar.querySelectorAll('a')].find(a => a.textContent.trim() === 'Home');
+        if (!homeBtn) return;
+
+        if (document.getElementById('froot-customizer-sidebar-btn')) return;
+
+        const newBtn = homeBtn.cloneNode(true);
+        newBtn.id = 'froot-customizer-sidebar-btn';
+        newBtn.href = 'javascript:void(0)';
+        newBtn.removeAttribute('data-active');
+
+        const existingIcon = newBtn.querySelector('svg, span[class*="icon"]');
+        if (existingIcon) {
+            const iconSpan = document.createElement('span');
+            iconSpan.style.cssText = 'display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;margin-right:4px;vertical-align:middle;flex-shrink:0;opacity:0.85';
+            iconSpan.innerHTML = '<svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/><circle cx="12" cy="12" r="3"/></svg>';
+            existingIcon.replaceWith(iconSpan);
+        }
+
+        const textEl = [...newBtn.querySelectorAll('*')].find(el => el.children.length === 0 && el.textContent.trim() !== '');
+        if (textEl) textEl.textContent = 'Customization';
+
+        newBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            createCustomizerPanel();
+        });
+
+        const upgradeBtn = [...sidebar.querySelectorAll('a')].find(a => a.textContent.includes('Upgrade'));
+        if (upgradeBtn) {
+            sidebar.insertBefore(newBtn, upgradeBtn);
+        } else {
+            sidebar.appendChild(newBtn);
+        }
+    }
+
+    function removeOldButtons() {
+        const oldSidebarBtn = document.getElementById('froot-customizer-sidebar-btn');
+        if (oldSidebarBtn) oldSidebarBtn.remove();
+        const oldMenuBtn = document.getElementById('froot-customizer-menu-btn');
+        if (oldMenuBtn) oldMenuBtn.remove();
+        const oldNavBtn = document.getElementById('froot-customizer-btn');
+        if (oldNavBtn) oldNavBtn.remove();
+        const oldAccountBtn = document.getElementById('froot-customizer-account-btn');
+        if (oldAccountBtn) oldAccountBtn.remove();
+    }
+
+    function init() {
+        applyStyles();
+        removeOldButtons();
+        addCustomizeButtonToSidebar();
+        const observer = new MutationObserver(() => {
+            addCustomizeButtonToSidebar();
+        });
+        observer.observe(document.body, { childList: true, subtree: true });
+    }
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', init);
+    } else {
+        init();
+    }
+})();
