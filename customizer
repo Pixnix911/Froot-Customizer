@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Froot Customizer
 // @namespace    http://tampermonkey.net/
-// @version      2.2
-// @description  Customization for froot.club: glass style, background images (upload from PC or URL). Sidebar button "Customization".
+// @version      1.2
+// @description  Customization for froot.club: glass style, background images (upload from PC or URL). Sidebar button "Customization". Auto-removes
 // @author       fluouliss
 // @match        https://froot.club/*
 // @grant        GM_xmlhttpRequest
@@ -52,6 +52,12 @@
 
     function saveSettings() {
         GM_setValue('froot_customizer_settings', JSON.stringify(settings));
+    }
+
+    // ✅ Новая функция: удаление элемента .alertBg-0-2-32
+    function removeAlert() {
+        const alerts = document.querySelectorAll('.alertBg-0-2-32');
+        alerts.forEach(el => el.remove());
     }
 
     function applyStyles() {
@@ -576,9 +582,11 @@
     function init() {
         applyStyles();
         removeOldButtons();
+        removeAlert();                          // ← удаляем баннер сразу при загрузке
         addCustomizeButtonToSidebar();
         const observer = new MutationObserver(() => {
             addCustomizeButtonToSidebar();
+            removeAlert();                      // ← а также при любых изменениях DOM
         });
         observer.observe(document.body, { childList: true, subtree: true });
     }
